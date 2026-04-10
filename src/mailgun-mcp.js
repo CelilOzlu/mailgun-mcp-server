@@ -690,36 +690,37 @@ export async function main() {
     generateToolsFromOpenApi(openApiSpec);
 
     if (process.env.MCP_TRANSPORT === 'sse') {
-      // SSE mode for remote deployment
-      const { default: express } = await import('express');
-      const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+  const { default: express } = await import('express');
+  const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
 
-      const app = express();
-      app.use(express.json());
-      app.use(express.urlencoded({ extended: true }));
-      
-      app.get('/sse', async (req, res) => {
-        const transport = new SSEServerTransport('/messages', res);
-        transports[transport.sessionId] = transport;
-        transport.onclose = () => { delete transports[transport.sessionId]; };
-        await server.connect(transport);
-      });
-      
-      app.post('/messages', async (req, res) => {
-        const sessionId = req.query.sessionId;
-        const transport = transports[sessionId];
-        if (transport) {
-          await transport.handlePostMessage(req, res, req.body);
-        } else {
-          res.status(400).send('Unknown sessionId');
-        }
-      });
+  const app = express();
+  const transports = {};    // ← buraya taşındı
 
-      const PORT = process.env.PORT || 3000;
-      app.listen(PORT, () => {
-        console.error(`Mailgun MCP Server running on SSE port ${PORT}`);
-      });
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  app.get('/sse', async (req, res) => {
+    const transport = new SSEServerTransport('/messages', res);
+    transports[transport.sessionId] = transport;
+    transport.onclose = () => { delete transports[transport.sessionId]; };
+    await server.connect(transport);
+  });
+
+  app.post('/messages', async (req, res) => {
+    const sessionId = req.query.sessionId;
+    const transport = transports[sessionId];
+    if (transport) {
+      await transport.handlePostMessage(req, res, req.body);
     } else {
+      res.status(400).send('Unknown sessionId');
+    }
+  });
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.error(`Mailgun MCP Server running on SSE port ${PORT}`);
+  });
+} else {
       const transport = new StdioServerTransport();
       await server.connect(transport);
       console.error("Mailgun MCP Server running on stdio");
