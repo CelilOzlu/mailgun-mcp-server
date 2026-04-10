@@ -696,21 +696,20 @@ export async function main() {
 
       const app = express();
       app.use(express.json());
-
-      const transports = {};
-
+      app.use(express.urlencoded({ extended: true }));
+      
       app.get('/sse', async (req, res) => {
         const transport = new SSEServerTransport('/messages', res);
         transports[transport.sessionId] = transport;
         transport.onclose = () => { delete transports[transport.sessionId]; };
         await server.connect(transport);
       });
-
+      
       app.post('/messages', async (req, res) => {
         const sessionId = req.query.sessionId;
         const transport = transports[sessionId];
         if (transport) {
-          await transport.handlePostMessage(req, res);
+          await transport.handlePostMessage(req, res, req.body);
         } else {
           res.status(400).send('Unknown sessionId');
         }
