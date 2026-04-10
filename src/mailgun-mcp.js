@@ -682,20 +682,49 @@ export function appendQueryString(path, queryParams) {
 export async function main() {
   try {
     if (!MAILGUN_API_KEY) {
-      console.error("Error: MAILGUN_API_KEY environment variable is required. Set it in your MCP client configuration.");
+      console.error("Error: MAILGUN_API_KEY environment variable is required.");
       process.exit(1);
     }
 
-    // Load and parse OpenAPI spec
     const openApiSpec = loadOpenApiSpec(OPENAPI_YAML);
-
-    // Generate tools from the spec
     generateToolsFromOpenApi(openApiSpec);
 
-    // Connect to the transport
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("Mailgun MCP Server running on stdio");
+    if (process.env.MCP_TRANSPORT === 'sse') {
+      // SSE mode for remote deployment
+      const { default: express } = await import('express');
+      const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+
+      const app = express();
+      app.use(express.json());
+
+      const transports = {};
+
+      app.get('/sse', async (req, res) => {
+        const transport = new SSEServerTransport('/messages', res);
+        transports[transport.sessionId] = transport;
+        transport.onclose = () => { delete transports[transport.sessionId]; };
+        await server.connect(transport);
+      });
+
+      app.post('/messages', async (req, res) => {
+        const sessionId = req.query.sessionId;
+        const transport = transports[sessionId];
+        if (transport) {
+          await transport.handlePostMessage(req, res);
+        } else {
+          res.status(400).send('Unknown sessionId');
+        }
+      });
+
+      const PORT = process.env.PORT || 3000;
+      app.listen(PORT, () => {
+        console.error(`Mailgun MCP Server running on SSE port ${PORT}`);
+      });
+    } else {
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+      console.error("Mailgun MCP Server running on stdio");
+    }
   } catch (error) {
     console.error("Fatal error in main():", error);
     if (process.env.NODE_ENV !== 'test') {
