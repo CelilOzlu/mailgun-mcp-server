@@ -703,6 +703,9 @@ export async function main() {
     const transport = new SSEServerTransport('/messages', res);
     transports[transport.sessionId] = transport;
     transport.onclose = () => { delete transports[transport.sessionId]; };
+    try {
+      await server.server.close();
+    } catch (_) {}
     await server.connect(transport);
   });
 
